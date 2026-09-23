@@ -1,181 +1,58 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { initialData } from './data';
-import { supabase, supabaseConfigured } from './supabase';
+import {
+  MONTHS,
+  calculateMetrics,
+  cleanBudgetData,
+  createMonthlySeries,
+  formatCurrency as fmt,
+  formatPercent as pct,
+  getCurrentMonth,
+  getMonthIndex,
+} from './lib/budget';
+import { useBudgetData } from './hooks/useBudgetData';
 
-const MONTHS = initialData.months;
-const fmt = (n) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 2 }).format(Number(n || 0));
-const pct = (n) => `${Math.round((Number(n || 0) * 100))}%`;
-const monthIndex = (m) => MONTHS.indexOf(m);
-const currentMonth = () => MONTHS[new Date().getMonth()] || 'Jan';
-const STORAGE_KEY = 'household-budget-data-v2';
 const MONTH_KEY = 'household-budget-selected-month-v1';
 
-const cleanData = (value) => {
-  const base = value && typeof value === 'object' ? value : initialData;
-  return {
-    ...initialData,
-    ...base,
-    incomes: (base.incomes || initialData.incomes || []).filter(i => i.name !== 'Total Income'),
-    categories: Array.isArray(base.categories) ? base.categories : initialData.categories,
-    transactions: Array.isArray(base.transactions) ? base.transactions : initialData.transactions,
-    months: Array.isArray(base.months) ? base.months : initialData.months,
-  };
-};
-
-function loadSavedData(){
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('household-budget-data');
-    return cleanData(raw ? JSON.parse(raw) : initialData);
-  } catch {
-    return cleanData(initialData);
-  }
-}
-
 function App(){
-  const [data, setData] = useState(loadSavedData);
+  const { data, cloudStatus, isCloudEnabled, updateData, addTransaction, removeTransaction } = useBudgetData();
   const [page, setPage] = useState('dashboard');
-  const [cloudReady, setCloudReady] = useState(!supabaseConfigured);
-  const [cloudStatus, setCloudStatus] = useState(supabaseConfigured ? 'Connecting…' : 'Local only');
   const [selectedMonth, setSelectedMonth] = useState(() => {
-    try { return localStorage.getItem(MONTH_KEY) || currentMonth(); } catch { return currentMonth(); }
+    try { return localStorage.getItem(MONTH_KEY) || getCurrentMonth(); } catch { return getCurrentMonth(); }
   });
   const [showAdd, setShowAdd] = useState(false);
   const [toast, setToast] = useState('');
-
-  useEffect(() => {
-    if (!supabaseConfigured) return undefined;
-
-    let cancelled = false;
-
-    const loadCloudData = async () => {
-      try {
-        let { data: authData, error: authError } = await supabase.auth.getSession();
-        if (authError) throw authError;
-
-        let user = authData?.session?.user ?? null;
-        if (!user) {
-          const result = await supabase.auth.signInAnonymously();
-          if (result.error) throw result.error;
-          user = result.data.user;
-        }
-
-        const { data: row, error } = await supabase
-          .from('household_budgets')
-          .select('payload')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (error) throw error;
-
-        if (cancelled) return;
-
-        if (row?.payload) {
-          setData(cleanData(row.payload));
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanData(row.payload)));
-          } catch {}
-        } else {
-          const startingData = cleanData(loadSavedData());
-          setData(startingData);
-          const { error: insertError } = await supabase
-            .from('household_budgets')
-            .insert({ user_id: user.id, payload: startingData });
-          if (insertError && insertError.code !== '23505') throw insertError;
-        }
-
-        setCloudReady(true);
-        setCloudStatus('Cloud synced');
-      } catch (error) {
-        console.error('Cloud load failed:', error);
-        if (!cancelled) {
-          setCloudReady(true);
-          setCloudStatus('Offline backup');
-        }
-      }
-    };
-
-    loadCloudData();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      localStorage.setItem('household-budget-data', JSON.stringify(data));
-    } catch (err) {
-      console.error('Could not save local backup', err);
-    }
-  }, [data]);
+  const toastTimer = useRef();
 
   useEffect(() => {
     try { localStorage.setItem(MONTH_KEY, selectedMonth); } catch {}
   }, [selectedMonth]);
 
-  useEffect(() => {
-    if (!supabaseConfigured || !cloudReady) return undefined;
-
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      try {
-        const { data: authData } = await supabase.auth.getSession();
-        const user = authData?.session?.user;
-        if (!user) return;
-        const { error } = await supabase
-          .from('household_budgets')
-          .upsert({ user_id: user.id, payload: data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-        if (error) throw error;
-        if (!cancelled) setCloudStatus('Cloud synced');
-      } catch (error) {
-        console.error('Cloud save failed:', error);
-        if (!cancelled) setCloudStatus('Offline backup');
-      }
-    }, 350);
-
-    return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [data, cloudReady]);
-
   const save = (next) => {
-    setData(cleanData(next));
-    setToast(supabaseConfigured ? 'Saved' : 'Saved on this device');
-    window.clearTimeout(save._t);
-    save._t = window.setTimeout(() => setToast(''), 1800);
+    updateData(next);
+    setToast(isCloudEnabled ? 'Saved' : 'Saved on this device');
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(''), 1800);
   };
 
   const metrics = useMemo(() => {
-    const incomeSources = data.incomes.filter(i => i.name !== 'Total Income');
-    const annualIncome = incomeSources.reduce((sum, i) => sum + MONTHS.reduce((s,m)=>s+(i.months[m]||0),0),0);
-    const annualExpenses = data.transactions.reduce((s,t)=>s+t.amount,0);
-    const net = annualIncome - annualExpenses;
-    const current = data.transactions.filter(t=>t.month===selectedMonth);
-    const currentExpenses = current.reduce((s,t)=>s+t.amount,0);
-    const incomeCurrent = incomeSources.reduce((s,i)=>s+(i.months[selectedMonth]||0),0);
-    const savingsCurrent = incomeCurrent-currentExpenses;
-    const categorySpend = data.categories.map(c=>({
-      ...c,
-      actual: current.filter(t=>t.category===c.name).reduce((s,t)=>s+t.amount,0),
-      budget: c.monthlyBudget || 0
-    }));
-    return {annualIncome, annualExpenses, net, currentExpenses, incomeCurrent, savingsCurrent, categorySpend, current, incomeSources};
+    return calculateMetrics(data, selectedMonth);
   }, [data, selectedMonth]);
 
-  const monthlySeries = MONTHS.map(m => ({
-    month:m,
-    expenses:data.transactions.filter(t=>t.month===m).reduce((s,t)=>s+t.amount,0),
-    income:data.incomes.filter(i => i.name !== 'Total Income').reduce((s,i)=>s+(i.months[m]||0),0)
-  }));
+  const monthlySeries = useMemo(() => createMonthlySeries(data), [data]);
 
   const reset = () => {
-    const restored = cleanData(JSON.parse(JSON.stringify(initialData)));
+    const restored = cleanBudgetData(JSON.parse(JSON.stringify(initialData)));
     save(restored);
   };
 
-  const addTransaction = (tx) => {
-    const next = {...data, transactions:[...data.transactions,{...tx,id:Date.now()}]};
-    save(next); setShowAdd(false); setPage('transactions');
+  const handleAddTransaction = async (tx) => {
+    await addTransaction(tx);
+    setShowAdd(false); setPage('transactions');
   };
-
-  const removeTransaction = (id) => save({...data, transactions:data.transactions.filter(t=>t.id!==id)});
-
+const handleRemoveTransaction = async (id) => {
+    await removeTransaction(id);
+  };
   const updateBudget = (name, value) => {
     save({...data, categories:data.categories.map(c=>c.name===name?{...c,monthlyBudget:Number(value)||0}:c)});
   };
@@ -196,7 +73,7 @@ function App(){
         <NavItem icon="▤" label="Budget" active={page==='budget'} onClick={()=>setPage('budget')}/>
         <NavItem icon="＋" label="Income" active={page==='income'} onClick={()=>setPage('income')}/>
       </nav>
-      <div className="sidebar-note"><div className="tiny-label">{supabaseConfigured ? 'CLOUD STORAGE' : 'LOCAL MODE'}</div><p>{supabaseConfigured ? `${cloudStatus}. No login screen.` : 'Your data stays in this browser.'}</p></div>
+      <div className="sidebar-note"><div className="tiny-label">{isCloudEnabled ? 'CLOUD STORAGE' : 'LOCAL MODE'}</div><p>{isCloudEnabled ? `${cloudStatus}. No login screen.` : 'Your data stays in this browser.'}</p></div>
       <button className="reset-btn" onClick={reset}>Restore sample data</button>
     </aside>
 
@@ -207,12 +84,12 @@ function App(){
       </header>
 
       {page==='dashboard' && <Dashboard metrics={metrics} monthlySeries={monthlySeries} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth} onAdd={()=>setShowAdd(true)} />}
-      {page==='transactions' && <Transactions transactions={data.transactions} onDelete={removeTransaction} />}
+      {page==='transactions' && <Transactions transactions={data.transactions} onDelete={handleRemoveTransaction} />}
       {page==='budget' && <Budget categories={data.categories} selectedMonth={selectedMonth} onUpdate={updateBudget} />}
       {page==='income' && <Income incomes={data.incomes} onUpdate={updateIncome} />}
     </main>
 
-    {showAdd && <AddExpense categories={data.categories} defaultMonth={selectedMonth} onClose={()=>setShowAdd(false)} onSave={addTransaction}/>} 
+    {showAdd && <AddExpense categories={data.categories} defaultMonth={selectedMonth} onClose={()=>setShowAdd(false)} onSave={handleAddTransaction}/>} 
     {toast && <div className="toast">{toast}</div>}
   </div>
 }
@@ -254,7 +131,7 @@ function Dashboard({metrics, monthlySeries, selectedMonth, setSelectedMonth, onA
       <div className="panel chart-panel">
         <div className="panel-head">
           <div><div className="eyebrow">FLOW</div><h2>Money through the year</h2><p className="subtext">Income and spending by month. Tap a month to update the dashboard.</p></div>
-          <button className="quiet" onClick={()=>setSelectedMonth(MONTHS[(monthIndex(selectedMonth)+1)%MONTHS.length])}>Next month →</button>
+          <button className="quiet" onClick={()=>setSelectedMonth(MONTHS[(getMonthIndex(selectedMonth)+1)%MONTHS.length])}>Next month →</button>
         </div>
         <YearFlowChart monthlySeries={monthlySeries} selectedMonth={selectedMonth} onSelect={setSelectedMonth}/>
       </div>
