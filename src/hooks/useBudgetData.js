@@ -14,25 +14,10 @@ function mapAwsExpense(item) {
     category: item.category,
     description: item.description || "",
     amount: item.amount,
+    importBatch: item.importBatch || null,
   };
 }
-const importTransactions = async (list) => {
-  setCloudStatus("Importing…");
-  let ok = 0;
-  let failed = 0;
-  for (const tx of list) {
-    try {
-      await addExpense(tx);
-      ok++;
-    } catch (error) {
-      failed++;
-      console.error("Import row failed:", tx, error);
-    }
-  }
-  await loadAll();
-  setCloudStatus(failed ? `Imported ${ok}, ${failed} failed` : "Cloud synced");
-  return { ok, failed };
-};
+
 export function useBudgetData() {
   const [settings, setSettings] = useState({
     categories: initialData.categories,
@@ -42,7 +27,9 @@ export function useBudgetData() {
   const [transactions, setTransactions] = useState([]);
   const [cloudStatus, setCloudStatus] = useState("Connecting…");
   const [ready, setReady] = useState(false);
-
+  const [lastImportBatch, setLastImportBatch] = useState(() => {
+  try { return localStorage.getItem("household-budget-last-import-batch") || null; } catch { return null; }
+});
   const loadAll = useCallback(async () => {
     try {
       const [items, remoteSettings] = await Promise.all([fetchExpenses(), fetchSettings()]);
@@ -109,5 +96,45 @@ export function useBudgetData() {
       setCloudStatus("Delete failed — check connection");
     }
   };
-return { data, cloudStatus, isCloudEnabled: true, updateData, addTransaction, removeTransaction, importTransactions };
-}
+  const importTransactions = async (list) => {
+  const batchId = `import-${Date.now()}`;
+  setCloudStatus("Importing…");
+  let ok = 0;
+  let failed = 0;
+  for (const tx of list) {
+    try {
+      await addExpense({ ...tx, importBatch: batchId });
+      ok++;
+    } catch (error) {
+      failed++;
+      console.error("Import row failed:", tx, error);
+    }
+  }
+  await loadAll();
+  setCloudStatus(failed ? `Imported ${ok}, ${failed} failed` : "Cloud synced");
+  if (ok > 0) {
+    setLastImportBatch(batchId);
+    try { localStorage.setItem("household-budget-last-import-batch", batchId); } catch {}
+  }
+  return { ok, failed };
+};
+const undoLastImport = async () => {
+  if (!lastImportBatch) return { deleted: 0 };
+  setCloudStatus("Undoing import…");
+  const toRemove = transactions.filter((t) => t.importBatch === lastImportBatch);
+  let deleted = 0;
+  for (const t of toRemove) {
+    try {
+      await deleteExpense(t.expenseId);
+      deleted++;
+    } catch (error) {
+      console.error("Undo delete failed:", t, error);
+    }
+  }
+  await loadAll();
+  setLastImportBatch(null);
+  try { localStorage.removeItem("household-budget-last-import-batch"); } catch {}
+  setCloudStatus("Cloud synced");
+  return { deleted };
+};
+return { data, cloudStatus, isCloudEnabled: true, updateData, addTransaction, removeTransaction, importTransactions, undoLastImport, lastImportBatch };}

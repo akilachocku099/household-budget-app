@@ -12,13 +12,12 @@ import {
 } from './lib/budget';
 import { useBudgetData } from './hooks/useBudgetData';
 import { parseTransactionsFromExcel } from './lib/excelImport';
-import { useRef } from 'react';
-
 const MONTH_KEY = 'household-budget-selected-month-v1';
 
 function App(){
-const { data, cloudStatus, isCloudEnabled, updateData, addTransaction, removeTransaction, importTransactions } = useBudgetData();  const [page, setPage] = useState('dashboard');
-  const [selectedMonth, setSelectedMonth] = useState(() => {
+const { data, cloudStatus, isCloudEnabled, updateData, addTransaction, removeTransaction, importTransactions, undoLastImport, lastImportBatch } = useBudgetData();  
+const [page, setPage] = useState('dashboard');
+const [selectedMonth, setSelectedMonth] = useState(() => {
     try { return localStorage.getItem(MONTH_KEY) || getCurrentMonth(); } catch { return getCurrentMonth(); }
   });
   
@@ -43,10 +42,12 @@ const { data, cloudStatus, isCloudEnabled, updateData, addTransaction, removeTra
 
   const monthlySeries = useMemo(() => createMonthlySeries(data), [data]);
 
-  const reset = () => {
-    const restored = cleanBudgetData(JSON.parse(JSON.stringify(initialData)));
-    save(restored);
-  };
+  const handleUndoImport = async () => {
+  const { deleted } = await undoLastImport();
+  setToast(`Removed ${deleted} imported transactions`);
+  window.clearTimeout(toastTimer.current);
+  toastTimer.current = window.setTimeout(() => setToast(''), 2500);
+};
 
   const handleAddTransaction = async (tx) => {
     await addTransaction(tx);
@@ -97,7 +98,6 @@ const handleFileChange = async (e) => {
         <NavItem icon="＋" label="Income" active={page==='income'} onClick={()=>setPage('income')}/>
       </nav>
       <div className="sidebar-note"><div className="tiny-label">{isCloudEnabled ? 'CLOUD STORAGE' : 'LOCAL MODE'}</div><p>{isCloudEnabled ? `${cloudStatus}. No login screen.` : 'Your data stays in this browser.'}</p></div>
-      <button className="reset-btn" onClick={reset}>Restore sample data</button>
       <input
         type="file"
         accept=".xlsx"
@@ -106,8 +106,7 @@ const handleFileChange = async (e) => {
         style={{ display: 'none' }}
       />
       <button className="reset-btn" onClick={handleImportClick}>Import from Excel</button>
-      <button className="reset-btn" onClick={reset}>Restore sample data</button>
-    </aside>
+      {lastImportBatch && <button className="reset-btn" onClick={handleUndoImport}>Undo last import</button>}    </aside>
 
     <main className="main">
       <header className="topbar">
