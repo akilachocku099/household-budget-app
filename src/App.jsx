@@ -278,7 +278,16 @@ function Income({incomes,onUpdate}){return <div className="page-body"><div class
 
 function AddExpense({categories,defaultMonth,onClose,onSave}){
  const [form,setForm]=useState({date:new Date().toISOString().slice(0,10),fortnight:1,month:defaultMonth,category:categories[0]?.name||'Miscellaneous',description:'',amount:''});
- const submit=(e)=>{e.preventDefault(); if(!form.description||!form.amount)return; onSave({...form,amount:Number(form.amount),fortnight:Number(form.fortnight)});};
+ const submit=(e)=>{
+  e.preventDefault();
+  if(!form.amount) return;
+  onSave({
+    ...form,
+    description: form.description || 'Not given',
+    amount: Number(form.amount),
+    fortnight: Number(form.fortnight)
+  });
+};
  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onSubmit={submit} onMouseDown={e=>e.stopPropagation()}><button type="button" className="close" onClick={onClose}>×</button><div className="eyebrow">NEW TRANSACTION</div><h2>Add an expense</h2><p>Keep it simple. Date, category, description and amount.</p><label>Date<input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></label><div className="form-grid"><label>Month<select value={form.month} onChange={e=>setForm({...form,month:e.target.value})}>{MONTHS.map(m=><option key={m}>{m}</option>)}</select></label><label>Fortnight<input type="number" min="1" value={form.fortnight} onChange={e=>setForm({...form,fortnight:e.target.value})}/></label></div><label>Category<select value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>{categories.map(c=><option key={c.name}>{c.name}</option>)}</select></label><label>Description<input autoFocus value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="e.g. Woolworths"/></label><label>Amount<input type="number" min="0" step="0.01" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="0.00"/></label><button className="primary wide" type="submit">Save expense</button></form></div>
 }
 
