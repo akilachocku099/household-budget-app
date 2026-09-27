@@ -1,15 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { initialData } from './data';
-import {
-  MONTHS,
-  calculateMetrics,
-  cleanBudgetData,
-  createMonthlySeries,
-  formatCurrency as fmt,
-  formatPercent as pct,
-  getCurrentMonth,
-  getMonthIndex,
-} from './lib/budget';
+import { MONTHS, calculateMetrics, cleanBudgetData, createMonthlySeries, formatCurrency as fmt, formatPercent as pct, getCurrentMonth, getMonthIndex, getCommonDescriptions } from './lib/budget';
 import { useBudgetData } from './hooks/useBudgetData';
 import { parseTransactionsFromExcel } from './lib/excelImport';
 const MONTH_KEY = 'household-budget-selected-month-v1';
@@ -35,7 +26,7 @@ const [selectedMonth, setSelectedMonth] = useState(() => {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(''), 1800);
   };
-
+const commonDescriptions = useMemo(() => getCommonDescriptions(data.transactions), [data.transactions]);
   const metrics = useMemo(() => {
     return calculateMetrics(data, selectedMonth);
   }, [data, selectedMonth]);
@@ -119,8 +110,7 @@ const handleFileChange = async (e) => {
       {page==='income' && <Income incomes={data.incomes} onUpdate={updateIncome} />}
     </main>
 
-    {showAdd && <AddExpense categories={data.categories} defaultMonth={selectedMonth} onClose={()=>setShowAdd(false)} onSave={handleAddTransaction}/>} 
-    {toast && <div className="toast">{toast}</div>}
+{showAdd && <AddExpense categories={data.categories} defaultMonth={selectedMonth} onClose={()=>setShowAdd(false)} onSave={handleAddTransaction} commonDescriptions={commonDescriptions}/>}    {toast && <div className="toast">{toast}</div>}
   </div>
 }
 
@@ -276,8 +266,8 @@ function Budget({categories,selectedMonth,onUpdate}){return <div className="page
 
 function Income({incomes,onUpdate}){return <div className="page-body"><div className="panel table-panel"><div className="panel-head"><div><div className="eyebrow">INCOME SOURCES</div><h2>Expected monthly income</h2><p className="subtext">Edit your actual income sources; the household total is calculated automatically.</p></div></div><div className="table-wrap"><table><thead><tr><th>Source</th>{MONTHS.map(m=><th key={m}>{m}</th>)}<th className="right">Annual</th></tr></thead><tbody>{incomes.filter(i=>i.name !== 'Total Income').map(i=><tr key={i.name}><td><strong>{i.name}</strong></td>{MONTHS.map(m=><td key={m}><input className="cell-input" type="number" value={i.months[m]} onChange={e=>onUpdate(i.name,m,e.target.value)}/></td>)}<td className="right">{fmt(MONTHS.reduce((s,m)=>s+(i.months[m]||0),0))}</td></tr>)}</tbody></table></div></div></div>}
 
-function AddExpense({categories,defaultMonth,onClose,onSave}){
- const [form,setForm]=useState({date:new Date().toISOString().slice(0,10),fortnight:1,month:defaultMonth,category:categories[0]?.name||'Miscellaneous',description:'',amount:''});
+function AddExpense({categories,defaultMonth,onClose,onSave,commonDescriptions}){
+   const [form,setForm]=useState({date:new Date().toISOString().slice(0,10),fortnight:1,month:defaultMonth,category:categories[0]?.name||'Miscellaneous',description:'',amount:''});
  const submit=(e)=>{
   e.preventDefault();
   if(!form.amount) return;
@@ -288,7 +278,13 @@ function AddExpense({categories,defaultMonth,onClose,onSave}){
     fortnight: Number(form.fortnight)
   });
 };
- return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onSubmit={submit} onMouseDown={e=>e.stopPropagation()}><button type="button" className="close" onClick={onClose}>×</button><div className="eyebrow">NEW TRANSACTION</div><h2>Add an expense</h2><p>Keep it simple. Date, category, description and amount.</p><label>Date<input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></label><div className="form-grid"><label>Month<select value={form.month} onChange={e=>setForm({...form,month:e.target.value})}>{MONTHS.map(m=><option key={m}>{m}</option>)}</select></label><label>Fortnight<input type="number" min="1" value={form.fortnight} onChange={e=>setForm({...form,fortnight:e.target.value})}/></label></div><label>Category<select value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>{categories.map(c=><option key={c.name}>{c.name}</option>)}</select></label><label>Description<input autoFocus value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="e.g. Woolworths"/></label><label>Amount<input type="number" min="0" step="0.01" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="0.00"/></label><button className="primary wide" type="submit">Save expense</button></form></div>
+ return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onSubmit={submit} onMouseDown={e=>e.stopPropagation()}><button type="button" className="close" onClick={onClose}>×</button><div className="eyebrow">NEW TRANSACTION</div><h2>Add an expense</h2><p>Keep it simple. Date, category, description and amount.</p><label>Date<input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></label><div className="form-grid"><label>Month<select value={form.month} onChange={e=>setForm({...form,month:e.target.value})}>{MONTHS.map(m=><option key={m}>{m}</option>)}</select></label><label>Fortnight<input type="number" min="1" value={form.fortnight} onChange={e=>setForm({...form,fortnight:e.target.value})}/></label></div><label>Category<select value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>{categories.map(c=><option key={c.name}>{c.name}</option>)}</select></label>
+<label>Description
+  <input list="desc-suggestions" autoFocus value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="e.g. Woolworths"/>
+  <datalist id="desc-suggestions">
+    {(commonDescriptions[form.category]||[]).map(d=><option key={d} value={d}/>)}
+  </datalist>
+</label> <label>Amount<input type="number" min="0" step="0.01" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="0.00"/></label><button className="primary wide" type="submit">Save expense</button></form></div>
 }
 
 export default App;

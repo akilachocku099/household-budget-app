@@ -86,5 +86,23 @@ export function createMonthlySeries(data) {
     income: data.incomes
       .filter((income) => income.name !== "Total Income")
       .reduce((total, income) => total + (income.months[month] || 0), 0),
-  }));
+  }
+));
+}
+export function getCommonDescriptions(transactions) {
+  const counts = {};
+  transactions.forEach((t) => {
+    if (!t.category) return;
+    const desc = (t.description || "").trim();
+    if (!desc || desc === "Not given") return;
+    counts[t.category] = counts[t.category] || {};
+    counts[t.category][desc] = (counts[t.category][desc] || 0) + 1;
+  });
+  const result = {};
+  Object.entries(counts).forEach(([category, descCounts]) => {
+    result[category] = Object.entries(descCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([desc]) => desc);
+  });
+  return result;
 }
