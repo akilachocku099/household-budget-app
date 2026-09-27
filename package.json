@@ -9,9 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vite": "latest",
+    "@supabase/supabase-js": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "@supabase/supabase-js": "latest"
+    "vite": "latest",
+    "xlsx": "^0.18.5"
   }
 }

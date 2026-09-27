@@ -84,8 +84,7 @@ const handleRemoveTransaction = async (id) => {
       </header>
 
       {page==='dashboard' && <Dashboard metrics={metrics} monthlySeries={monthlySeries} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth} onAdd={()=>setShowAdd(true)} />}
-      {page==='transactions' && <Transactions transactions={data.transactions} onDelete={handleRemoveTransaction} />}
-      {page==='budget' && <Budget categories={data.categories} selectedMonth={selectedMonth} onUpdate={updateBudget} />}
+      {page==='transactions' && <Transactions transactions={data.transactions} onDelete={handleRemoveTransaction} selectedMonth={selectedMonth} />}      {page==='budget' && <Budget categories={data.categories} selectedMonth={selectedMonth} onUpdate={updateBudget} />}
       {page==='income' && <Income incomes={data.incomes} onUpdate={updateIncome} />}
     </main>
 
@@ -233,10 +232,13 @@ function SpendingDonut({categorySpend}){
 
 function Kpi({label,value,note,positive}) {return <div className="kpi"><div><div className="eyebrow">{label}</div><strong>{value}</strong><span>{note}</span></div><div className={`kpi-dot ${positive===false?'bad':''}`}></div></div>}
 
-function Transactions({transactions,onDelete}){
+function Transactions({transactions,onDelete,selectedMonth}){
  const [search,setSearch]=useState('');
- const filtered=transactions.filter(t=>`${t.description} ${t.category} ${t.month}`.toLowerCase().includes(search.toLowerCase())).sort((a,b)=>b.date.localeCompare(a.date));
- return <div className="page-body"><div className="panel table-panel"><div className="panel-head"><div><div className="eyebrow">LEDGER</div><h2>Every logged expense</h2></div><input className="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search"/></div><div className="table-wrap"><table><thead><tr><th>Date</th><th>Fortnight</th><th>Month</th><th>Category</th><th>Description</th><th className="right">Amount</th><th></th></tr></thead><tbody>{filtered.map(t=><tr key={t.id}><td>{t.date}</td><td>{t.fortnight}</td><td>{t.month}</td><td><span className="table-chip">{t.category}</span></td><td>{t.description}</td><td className="right">{fmt(t.amount)}</td><td><button className="delete" onClick={()=>onDelete(t.id)}>×</button></td></tr>)}</tbody></table></div></div></div>
+ const filtered=transactions
+   .filter(t=>t.month===selectedMonth)
+   .filter(t=>`${t.description} ${t.category} ${t.month}`.toLowerCase().includes(search.toLowerCase()))
+   .sort((a,b)=>b.date.localeCompare(a.date));
+ return <div className="page-body"><div className="panel table-panel"><div className="panel-head"><div><div className="eyebrow">LEDGER</div><h2>Expenses for {selectedMonth}</h2></div><input className="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search"/></div><div className="table-wrap"><table><thead><tr><th>Date</th><th>Fortnight</th><th>Month</th><th>Category</th><th>Description</th><th className="right">Amount</th><th></th></tr></thead><tbody>{filtered.map(t=><tr key={t.id}><td>{t.date}</td><td>{t.fortnight}</td><td>{t.month}</td><td><span className="table-chip">{t.category}</span></td><td>{t.description}</td><td className="right">{fmt(t.amount)}</td><td><button className="delete" onClick={()=>onDelete(t.id)}>×</button></td></tr>)}</tbody></table></div></div></div>
 }
 
 function Budget({categories,selectedMonth,onUpdate}){return <div className="page-body"><div className="panel table-panel"><div className="panel-head"><div><div className="eyebrow">MONTHLY TARGETS</div><h2>Budget by category</h2><p className="subtext">Set a monthly target; the dashboard compares it with your actual {selectedMonth} spending.</p></div></div><div className="budget-cards">{categories.map(c=><div className="budget-card" key={c.name}><div><span className="type-tag">{c.type}</span><h3>{c.name}</h3></div><div className="budget-input"><span>$</span><input type="number" min="0" step="10" value={c.monthlyBudget} onChange={e=>onUpdate(c.name,e.target.value)}/></div><span className="annual">Annual target · {fmt(c.monthlyBudget*12)}</span></div>)}</div></div></div>}
