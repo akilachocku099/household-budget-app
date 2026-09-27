@@ -3,6 +3,7 @@ import { initialData } from "../data";
 import { fetchExpenses, addExpense, deleteExpense, fetchSettings, saveSettings } from "../aws";
 import { cleanBudgetData } from "../lib/budget";
 
+
 function mapAwsExpense(item) {
   return {
     id: item.expenseId,
@@ -15,7 +16,23 @@ function mapAwsExpense(item) {
     amount: item.amount,
   };
 }
-
+const importTransactions = async (list) => {
+  setCloudStatus("Importing…");
+  let ok = 0;
+  let failed = 0;
+  for (const tx of list) {
+    try {
+      await addExpense(tx);
+      ok++;
+    } catch (error) {
+      failed++;
+      console.error("Import row failed:", tx, error);
+    }
+  }
+  await loadAll();
+  setCloudStatus(failed ? `Imported ${ok}, ${failed} failed` : "Cloud synced");
+  return { ok, failed };
+};
 export function useBudgetData() {
   const [settings, setSettings] = useState({
     categories: initialData.categories,
@@ -92,6 +109,5 @@ export function useBudgetData() {
       setCloudStatus("Delete failed — check connection");
     }
   };
-
-  return { data, cloudStatus, isCloudEnabled: true, updateData, addTransaction, removeTransaction };
+return { data, cloudStatus, isCloudEnabled: true, updateData, addTransaction, removeTransaction, importTransactions };
 }

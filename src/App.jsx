@@ -11,15 +11,17 @@ import {
   getMonthIndex,
 } from './lib/budget';
 import { useBudgetData } from './hooks/useBudgetData';
+import { parseTransactionsFromExcel } from './lib/excelImport';
+import { useRef } from 'react';
 
 const MONTH_KEY = 'household-budget-selected-month-v1';
 
 function App(){
-  const { data, cloudStatus, isCloudEnabled, updateData, addTransaction, removeTransaction } = useBudgetData();
-  const [page, setPage] = useState('dashboard');
+const { data, cloudStatus, isCloudEnabled, updateData, addTransaction, removeTransaction, importTransactions } = useBudgetData();  const [page, setPage] = useState('dashboard');
   const [selectedMonth, setSelectedMonth] = useState(() => {
     try { return localStorage.getItem(MONTH_KEY) || getCurrentMonth(); } catch { return getCurrentMonth(); }
   });
+  
   const [showAdd, setShowAdd] = useState(false);
   const [toast, setToast] = useState('');
   const toastTimer = useRef();
@@ -60,7 +62,28 @@ const handleRemoveTransaction = async (id) => {
   const updateIncome = (name, month, value) => {
     save({...data, incomes:data.incomes.map(i=>i.name===name?{...i,months:{...i.months,[month]:Number(value)||0}}:i)});
   };
+  const fileInputRef = useRef();
 
+const handleImportClick = () => fileInputRef.current?.click();
+
+const handleFileChange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    setToast('Reading file…');
+    const transactions = await parseTransactionsFromExcel(file);
+    setToast(`Importing ${transactions.length} transactions…`);
+    const { ok, failed } = await importTransactions(transactions);
+    setToast(failed ? `Imported ${ok}, ${failed} failed` : `Imported ${ok} transactions`);
+  } catch (err) {
+    console.error(err);
+    setToast(err.message || 'Import failed');
+  } finally {
+    e.target.value = '';
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(''), 2500);
+  }
+};
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand">
@@ -74,6 +97,15 @@ const handleRemoveTransaction = async (id) => {
         <NavItem icon="＋" label="Income" active={page==='income'} onClick={()=>setPage('income')}/>
       </nav>
       <div className="sidebar-note"><div className="tiny-label">{isCloudEnabled ? 'CLOUD STORAGE' : 'LOCAL MODE'}</div><p>{isCloudEnabled ? `${cloudStatus}. No login screen.` : 'Your data stays in this browser.'}</p></div>
+      <button className="reset-btn" onClick={reset}>Restore sample data</button>
+      <input
+        type="file"
+        accept=".xlsx"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        style={{ display: 'none' }}
+      />
+      <button className="reset-btn" onClick={handleImportClick}>Import from Excel</button>
       <button className="reset-btn" onClick={reset}>Restore sample data</button>
     </aside>
 
